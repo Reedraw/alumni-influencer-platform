@@ -1,22 +1,30 @@
+// UUID generator for creating unique record IDs across all bidding tables
 const { v4: uuidv4 } = require("uuid");
 
 // ==================== BIDDING CYCLES ====================
 
 /**
- * Get or create today's bidding cycle
- * @param {object} db - Database pool
- * @returns {Promise<object>} Bidding cycle record
+ * Get today's bidding cycle, or create one if it doesn't exist yet.
+ * Each day has exactly one bidding cycle. This function is idempotent —
+ * calling it multiple times on the same day returns the same cycle.
+ * The cycle starts with 'open' status and is closed by the cron job at 6 PM.
+ * @param {object} db - MySQL connection pool
+ * @returns {Promise<object>} The bidding cycle record for today
  */
 async function getOrCreateTodayCycle(db) {
+    // Get today's date in YYYY-MM-DD format for the cycle_date column
     const today = new Date().toISOString().split("T")[0];
 
+    // Check if a cycle already exists for today
     const [existing] = await db.execute(
         `SELECT * FROM bidding_cycles WHERE cycle_date = ? LIMIT 1`,
         [today]
     );
 
+    // If a cycle exists, return it immediately (most common path)
     if (existing[0]) return existing[0];
 
+    // No cycle for today — create a new one with 'open' status
     const id = uuidv4();
     await db.execute(
         `INSERT INTO bidding_cycles (id, cycle_date, status)
@@ -24,6 +32,7 @@ async function getOrCreateTodayCycle(db) {
         [id, today]
     );
 
+    // Fetch and return the newly created cycle record
     const [rows] = await db.execute(
         `SELECT * FROM bidding_cycles WHERE id = ? LIMIT 1`,
         [id]
@@ -32,7 +41,11 @@ async function getOrCreateTodayCycle(db) {
 }
 
 /**
- * Get bidding cycle by date
+ * Get a bidding cycle by its date.
+ * Used by the cron job to find today's cycle for winner selection.
+ * @param {object} db - MySQL connection pool
+ * @param {string} date - Date string in YYYY-MM-DD format
+ * @returns {Promise<object|null>} The cycle record or null if no cycle exists for that date
  */
 async function getCycleByDate(db, date) {
     const [rows] = await db.execute(
@@ -43,7 +56,10 @@ async function getCycleByDate(db, date) {
 }
 
 /**
- * Close a bidding cycle
+ * Close a bidding cycle by setting its status to 'closed'.
+ * Called by the daily cron job at 6 PM — no more bids can be placed after this.
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the cycle to close
  */
 async function closeCycle(db, cycleId) {
     await db.execute(
@@ -55,16 +71,20 @@ async function closeCycle(db, cycleId) {
 // ==================== BIDS ====================
 
 /**
- * Place a new bid in a cycle
- * @param {object} db - Database pool
- * @param {string} cycleId - Bidding cycle ID
- * @param {string} userId - User ID
- * @param {number} amount - Bid amount
- * @returns {Promise<string>} Bid ID
+ * Place a new bid in a bidding cycle.
+ * Creates both the bid record and an initial bid revision (revision #1).
+ * Bid revisions track the history of amount changes for audit purposes.
+ * Each user can only place one bid per cycle (enforced at route level).
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @param {string} userId - UUID of the user placing the bid
+ * @param {number} amount - The bid amount in GBP
+ * @returns {Promise<string>} The UUID of the newly created bid
  */
 async function placeBid(db, cycleId, userId, amount) {
-    const id = uuidv4();
+    const id = uuidv4(); // Unique ID for this bid
 
+    // Insert the bid record with 'active' status
     await db.execute(
         `INSERT INTO bids
             (id, cycle_id, user_id, current_bid_amount, bid_status)
@@ -72,7 +92,7 @@ async function placeBid(db, cycleId, userId, amount) {
         [id, cycleId, userId, amount]
     );
 
-    // Create initial revision
+    // Create the initial bid revision (revision #1) for audit trail
     await db.execute(
         `INSERT INTO bid_revisions
             (id, bid_id, revision_number, bid_amount)
@@ -84,7 +104,14 @@ async function placeBid(db, cycleId, userId, amount) {
 }
 
 /**
- * Get user's bid for a specific cycle
+ * Get a user's bid for a specific cycle.
+ * Returns null if the user hasn't placed a bid in this cycle.
+ * Used to check if user already has a bid (to prevent duplicates)
+ * and to display their current bid on the bidding page.
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<object|null>} The bid record or null if no bid exists
  */
 async function getUserBidForCycle(db, cycleId, userId) {
     const [rows] = await db.execute(
@@ -97,22 +124,30 @@ async function getUserBidForCycle(db, cycleId, userId) {
 }
 
 /**
- * Update bid amount (increase only - validated in route)
+ * Update a bid amount (increase only — decrease validation happens in the route).
+ * Creates a new bid revision to track the change history.
+ * The revision number auto-increments based on existing revisions for this bid.
+ * @param {object} db - MySQL connection pool
+ * @param {string} bidId - UUID of the bid to update
+ * @param {number} newAmount - The new (higher) bid amount
  */
 async function updateBidAmount(db, bidId, newAmount) {
-    // Get current revision count
+    // Get the current highest revision number for this bid
     const [revisions] = await db.execute(
         `SELECT MAX(revision_number) as max_rev
          FROM bid_revisions WHERE bid_id = ?`,
         [bidId]
     );
+    // Calculate the next revision number (starts at 1, increments from there)
     const nextRev = (revisions[0]?.max_rev || 0) + 1;
 
+    // Update the current bid amount on the main bid record
     await db.execute(
         `UPDATE bids SET current_bid_amount = ? WHERE id = ?`,
         [newAmount, bidId]
     );
 
+    // Create a new revision record to track this change for audit purposes
     await db.execute(
         `INSERT INTO bid_revisions
             (id, bid_id, revision_number, bid_amount)
@@ -122,13 +157,20 @@ async function updateBidAmount(db, bidId, newAmount) {
 }
 
 /**
- * Get bid status with winning/losing indicator (blind bidding)
+ * Get a user's bid status with a winning/losing indicator (blind bidding system).
+ * The user can see whether they are currently winning or losing, but the actual
+ * highest bid amount is NOT revealed — this implements the blind bidding requirement.
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<object|null>} Bid object with is_winning flag, or null if no bid
  */
 async function getUserBidStatus(db, cycleId, userId) {
+    // Get the user's bid for this cycle
     const bid = await getUserBidForCycle(db, cycleId, userId);
-    if (!bid) return null;
+    if (!bid) return null; // User hasn't placed a bid
 
-    // Get highest bid amount for comparison (don't reveal the amount)
+    // Get the highest bid amount in this cycle (without revealing who placed it)
     const [rows] = await db.execute(
         `SELECT MAX(current_bid_amount) as highest_bid
          FROM bids WHERE cycle_id = ?`,
@@ -137,6 +179,7 @@ async function getUserBidStatus(db, cycleId, userId) {
 
     const highestBid = rows[0]?.highest_bid || 0;
 
+    // Return the bid with a boolean flag indicating if this is the leading bid
     return {
         ...bid,
         is_winning: parseFloat(bid.current_bid_amount) >= highestBid,
@@ -144,7 +187,11 @@ async function getUserBidStatus(db, cycleId, userId) {
 }
 
 /**
- * Get highest bid for a cycle (used by automated winner selection)
+ * Get the highest bid for a cycle (used by the automated winner selection cron job).
+ * Returns the full bid record of the highest bidder, ordered by amount descending.
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @returns {Promise<object|null>} The highest bid record, or null if no bids were placed
  */
 async function getHighestBidForCycle(db, cycleId) {
     const [rows] = await db.execute(
@@ -158,7 +205,12 @@ async function getHighestBidForCycle(db, cycleId) {
 }
 
 /**
- * Get all bids for a cycle (admin use)
+ * Get all bids for a cycle with user details (used for winner notification emails).
+ * Joins with the users table to get each bidder's name and email address.
+ * Results are ordered by bid amount descending (highest first).
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @returns {Promise<Array>} Array of bid records with user full_name and email
  */
 async function getAllBidsForCycle(db, cycleId) {
     const [rows] = await db.execute(
@@ -175,7 +227,11 @@ async function getAllBidsForCycle(db, cycleId) {
 // ==================== MONTHLY LIMITS ====================
 
 /**
- * Get how many times user has been featured this month
+ * Count how many times a user has been featured as Alumni of the Day this month.
+ * Used to enforce the monthly feature limit (3 normally, 4 with event attendance).
+ * @param {object} db - MySQL connection pool
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<number>} Number of times featured this month (0 if never)
  */
 async function getMonthlyWinCount(db, userId) {
     const [rows] = await db.execute(
@@ -190,7 +246,12 @@ async function getMonthlyWinCount(db, userId) {
 }
 
 /**
- * Check if user attended an alumni event this month
+ * Check if a user attended an alumni event this calendar month.
+ * Event attendance grants a bonus feature slot (4 instead of 3 per month).
+ * Checks both that the user has an attendance record AND that attended = TRUE.
+ * @param {object} db - MySQL connection pool
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<boolean>} True if the user attended at least one event this month
  */
 async function hasAttendedEventThisMonth(db, userId) {
     const [rows] = await db.execute(
@@ -203,30 +264,49 @@ async function hasAttendedEventThisMonth(db, userId) {
            AND YEAR(ae.event_date) = YEAR(CURRENT_DATE())`,
         [userId]
     );
-    return (rows[0]?.count || 0) > 0;
+    return (rows[0]?.count || 0) > 0; // True if at least one event attended
 }
 
 /**
- * Get monthly feature limit (3 normally, 4 if attended event)
+ * Get the monthly feature limit for a user.
+ * Base limit is 3 features per month. If the user attended an alumni event
+ * this month, they get a bonus slot (4 total). This incentivises event participation.
+ * @param {object} db - MySQL connection pool
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<number>} 3 (base limit) or 4 (with event attendance bonus)
  */
 async function getMonthlyLimit(db, userId) {
     const attended = await hasAttendedEventThisMonth(db, userId);
-    return attended ? 4 : 3;
+    return attended ? 4 : 3; // Bonus slot for event attendance
 }
 
 /**
- * Check if user can still bid (hasn't reached monthly limit)
+ * Check if a user is eligible to place a bid (hasn't reached their monthly limit).
+ * Compares their current win count against their personalised monthly limit.
+ * @param {object} db - MySQL connection pool
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<boolean>} True if the user can still bid this month
  */
 async function canUserBid(db, userId) {
     const winCount = await getMonthlyWinCount(db, userId);
     const limit = await getMonthlyLimit(db, userId);
-    return winCount < limit;
+    return winCount < limit; // True if they haven't used all their slots
 }
 
 // ==================== FEATURED ALUMNI ====================
 
 /**
- * Create featured alumni record (winner)
+ * Create a featured alumni record (the winner of a bidding cycle).
+ * This record determines who is displayed as "Alumni of the Day" on the
+ * specified featured_date. Created by the daily cron job after selecting the winner.
+ * @param {object} db - MySQL connection pool
+ * @param {object} data - Featured alumni data
+ * @param {string} data.cycleId - UUID of the bidding cycle this win came from
+ * @param {string} data.userId - UUID of the winning user
+ * @param {string} data.bidId - UUID of the winning bid
+ * @param {string} data.featuredDate - Date when the user will be featured (YYYY-MM-DD)
+ * @param {number} data.winningBidAmount - The amount of the winning bid
+ * @returns {Promise<string>} The UUID of the newly created featured alumni record
  */
 async function createFeaturedAlumni(db, {
     cycleId,
@@ -235,7 +315,8 @@ async function createFeaturedAlumni(db, {
     featuredDate,
     winningBidAmount,
 }) {
-    const id = uuidv4();
+    const id = uuidv4(); // Unique ID for this featured alumni record
+    // Insert the featured alumni record using parameterised query
     await db.execute(
         `INSERT INTO featured_alumni
             (id, cycle_id, user_id, bid_id,
@@ -247,11 +328,17 @@ async function createFeaturedAlumni(db, {
 }
 
 /**
- * Get today's featured alumni with full profile data
+ * Get today's featured alumni with their profile data.
+ * Joins with users and alumni_profiles tables to get the full display data
+ * needed for the "Alumni of the Day" section. Used by the API endpoint.
+ * @param {object} db - MySQL connection pool
+ * @returns {Promise<object|null>} Featured alumni with profile data, or null if none today
  */
 async function getTodayFeaturedAlumni(db) {
+    // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split("T")[0];
     const [rows] = await db.execute(
+        // Join with users for name/email and alumni_profiles for bio/image
         `SELECT fa.*, u.full_name, u.email,
                 ap.biography, ap.linkedin_url, ap.profile_image_path
          FROM featured_alumni fa
@@ -261,11 +348,16 @@ async function getTodayFeaturedAlumni(db) {
          LIMIT 1`,
         [today]
     );
-    return rows[0] || null;
+    return rows[0] || null; // Null if no one is featured today
 }
 
 /**
- * Get user's bid history across all cycles
+ * Get a user's complete bid history across all bidding cycles.
+ * Joins with bidding_cycles to show the date and status of each cycle.
+ * Used to display the bid history table on the user's bidding page.
+ * @param {object} db - MySQL connection pool
+ * @param {string} userId - UUID of the user
+ * @returns {Promise<Array>} Array of bid records with cycle date and status, newest first
  */
 async function getUserBidHistory(db, userId) {
     const [rows] = await db.execute(
@@ -280,7 +372,11 @@ async function getUserBidHistory(db, userId) {
 }
 
 /**
- * Mark a bid as winner
+ * Mark a bid as the winner of its cycle.
+ * Sets is_winner to TRUE and bid_status to 'won'.
+ * Called by the daily cron job after determining the highest bidder.
+ * @param {object} db - MySQL connection pool
+ * @param {string} bidId - UUID of the winning bid
  */
 async function markBidAsWinner(db, bidId) {
     await db.execute(
@@ -291,7 +387,12 @@ async function markBidAsWinner(db, bidId) {
 }
 
 /**
- * Mark all other bids in cycle as losing
+ * Mark all other bids in a cycle as losing (everyone except the winner).
+ * Sets bid_status to 'lost' for all bids that are NOT the winner's bid.
+ * Called by the daily cron job after the winner has been selected.
+ * @param {object} db - MySQL connection pool
+ * @param {string} cycleId - UUID of the bidding cycle
+ * @param {string} winnerBidId - UUID of the winning bid (excluded from update)
  */
 async function markOtherBidsAsLosing(db, cycleId, winnerBidId) {
     await db.execute(
@@ -301,6 +402,7 @@ async function markOtherBidsAsLosing(db, cycleId, winnerBidId) {
     );
 }
 
+// Export all bidding-related query functions
 module.exports = {
     getOrCreateTodayCycle,
     getCycleByDate,

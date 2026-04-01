@@ -1,23 +1,36 @@
+// Express framework for creating modular route handlers
 const express = require("express");
+// Create a new router instance for auth-related routes
 const router = express.Router();
+// UUID generator for creating unique user IDs on registration
 const { v4: uuidv4 } = require("uuid");
+// express-validator result extractor for checking form validation errors
 const { validationResult } = require("express-validator");
 
+// Database connection pool accessor
 const { getDatabase } = require("../lib/database");
+// bcrypt password verification utility
 const { verifyPassword } = require("../lib/password");
+// Email utilities: token generation, SHA256 hashing, and email sending
 const {
     generateToken,
     hashToken,
     sendVerificationEmail,
     sendPasswordResetEmail,
 } = require("../lib/email");
+// CSRF protection middleware to prevent cross-site request forgery
 const { csrfProtection } = require("../lib/csrf");
+// In-memory rate limiter to prevent brute-force attacks
 const { rateLimit } = require("../lib/rate-limit");
 
+// Database query functions for user CRUD operations
 const users = require("../queries/users");
+// Database query functions for verification/reset token management
 const tokens = require("../queries/tokens");
+// Database query functions for security audit logging
 const audit = require("../queries/audit");
 
+// Validation schemas for auth forms (register, login, forgot/reset password)
 const {
     registerValidation,
     loginValidation,
@@ -25,24 +38,29 @@ const {
     resetPasswordValidation,
 } = require("../models/authSchema");
 
-// Rate limiting for auth endpoints
+// Rate limiting: max 20 requests per 15 minutes per IP for all auth endpoints
+// Prevents brute-force login attempts and registration spam
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 
 // ==================== REGISTER ====================
 
+// GET /register — Display the registration form
 router.get("/register", (req, res) => {
     res.render("auth/register", { errors: [] });
 });
 
+// POST /register — Handle registration form submission
 router.post(
     "/register",
-    authLimiter,
-    csrfProtection,
-    registerValidation,
+    authLimiter, // Rate limit to prevent spam registrations
+    csrfProtection, // Validate CSRF token from the form
+    registerValidation, // Validate name, email domain, password strength
     async (req, res) => {
         try {
+            // Check for validation errors from express-validator
             const valErrors = validationResult(req);
             if (!valErrors.isEmpty()) {
+                // Re-render the form with validation error messages
                 return res.status(400).render("auth/register", {
                     errors: valErrors.array().map((e) => e.msg),
                 });
@@ -51,7 +69,7 @@ router.post(
             const db = getDatabase();
             const { full_name, email, password } = req.body;
 
-            // Check duplicate email
+            // Check if email is already registered to prevent duplicates
             const existingUser = await users.getUserByEmail(db, email);
             if (existingUser) {
                 return res.status(400).render("auth/register", {
@@ -59,28 +77,29 @@ router.post(
                 });
             }
 
-            // Create user
+            // Create the new user account with a UUID primary key
             const userId = uuidv4();
             await users.createUser(db, {
                 id: userId,
                 full_name,
                 email,
-                password,
-                is_verified: false,
+                password, // Will be hashed with bcrypt (12 rounds) inside createUser
+                is_verified: false, // Must verify email before logging in
                 is_active: true,
             });
 
-            // Generate and store verification token
-            const rawToken = generateToken();
-            const tokenHash = hashToken(rawToken);
+            // Generate a secure random token and hash it for database storage
+            const rawToken = generateToken(); // 32 random bytes as hex
+            const tokenHash = hashToken(rawToken); // SHA256 hash for storage
+            // Store the hashed token in the database (expires in 24 hours)
             await tokens.createEmailVerificationToken(
                 db, userId, tokenHash
             );
 
-            // Send verification email
+            // Send the raw (unhashed) token to the user's email as a verification link
             sendVerificationEmail(email, rawToken);
 
-            // Audit log
+            // Log the registration action in the security audit trail
             await audit.logAuthAction(db, {
                 userId,
                 emailAttempted: email,
@@ -89,6 +108,7 @@ router.post(
                 userAgent: req.get("user-agent"),
             });
 
+            // Show the "check your email" verification page
             res.render("auth/verify-email", { email });
         } catch (error) {
             console.error(error);
@@ -99,8 +119,10 @@ router.post(
 
 // ==================== EMAIL VERIFICATION ====================
 
+// GET /verify-email?token=... — Verify a user's email address via the link they received
 router.get("/verify-email", async (req, res) => {
     try {
+        // Extract the raw token from the query string
         const { token } = req.query;
         if (!token) {
             return res.status(400).send(
@@ -109,7 +131,9 @@ router.get("/verify-email", async (req, res) => {
         }
 
         const db = getDatabase();
+        // Hash the raw token from the URL to look it up in the database
         const tokenHash = hashToken(token);
+        // Find a valid (unused + not expired) verification token matching this hash
         const verificationToken =
             await tokens.getEmailVerificationToken(db, tokenHash);
 
@@ -119,11 +143,12 @@ router.get("/verify-email", async (req, res) => {
             );
         }
 
-        // Mark user as verified
+        // Mark the user's email as verified in the users table
         await users.verifyUserEmail(db, verificationToken.user_id);
+        // Mark the token as used so it can't be reused
         await tokens.markEmailTokenUsed(db, verificationToken.id);
 
-        // Audit log
+        // Log the verification in the security audit trail
         await audit.logAuthAction(db, {
             userId: verificationToken.user_id,
             action: "email_verified",
@@ -131,6 +156,7 @@ router.get("/verify-email", async (req, res) => {
             userAgent: req.get("user-agent"),
         });
 
+        // Redirect to login with a success message
         res.redirect(
             "/login?message=Email verified successfully. Please login."
         );
@@ -142,20 +168,23 @@ router.get("/verify-email", async (req, res) => {
 
 // ==================== LOGIN ====================
 
+// GET /login — Display the login form (with optional success message from verification/reset)
 router.get("/login", (req, res) => {
     res.render("auth/login", {
         errors: [],
-        message: req.query.message || null,
+        message: req.query.message || null, // Success message from redirects
     });
 });
 
+// POST /login — Handle login form submission and create user session
 router.post(
     "/login",
-    authLimiter,
-    csrfProtection,
-    loginValidation,
+    authLimiter, // Rate limit to prevent brute-force password attacks
+    csrfProtection, // Validate CSRF token from the form
+    loginValidation, // Validate email format and password presence
     async (req, res) => {
         try {
+            // Check for validation errors from express-validator
             const valErrors = validationResult(req);
             if (!valErrors.isEmpty()) {
                 return res.status(400).render("auth/login", {
@@ -167,9 +196,11 @@ router.post(
             const db = getDatabase();
             const { email, password } = req.body;
 
-            // Get user
+            // Look up the user by email address
             const user = await users.getUserByEmail(db, email);
 
+            // If no user found, log the failed attempt and show generic error
+            // Generic error prevents email enumeration attacks
             if (!user) {
                 await audit.logAuthAction(db, {
                     emailAttempted: email,
@@ -183,6 +214,7 @@ router.post(
                 });
             }
 
+            // Check if the account has been deactivated
             if (!user.is_active) {
                 return res.status(403).render("auth/login", {
                     errors: ["Account is disabled"],
@@ -190,6 +222,7 @@ router.post(
                 });
             }
 
+            // Check if the user has verified their email address
             if (!user.is_verified) {
                 return res.status(403).render("auth/login", {
                     errors: ["Please verify your email first"],
@@ -197,12 +230,13 @@ router.post(
                 });
             }
 
-            // Verify password
+            // Verify the submitted password against the stored bcrypt hash
             const validPassword = await verifyPassword(
                 password,
                 user.password_hash
             );
 
+            // If password doesn't match, log the failed attempt with the user ID
             if (!validPassword) {
                 await audit.logAuthAction(db, {
                     userId: user.id,
@@ -217,13 +251,15 @@ router.post(
                 });
             }
 
-            // Create session
+            // Authentication successful — create a session with user data
+            // Only store essential user info in the session (not the password hash)
             req.session.user = {
                 id: user.id,
                 full_name: user.full_name,
                 email: user.email,
             };
 
+            // Log the successful login in the audit trail
             await audit.logAuthAction(db, {
                 userId: user.id,
                 emailAttempted: email,
@@ -232,6 +268,7 @@ router.post(
                 userAgent: req.get("user-agent"),
             });
 
+            // Redirect to the user's profile page
             res.redirect("/profile");
         } catch (error) {
             console.error(error);
@@ -242,6 +279,7 @@ router.post(
 
 // ==================== FORGOT PASSWORD ====================
 
+// GET /forgot-password — Display the forgot password form
 router.get("/forgot-password", (req, res) => {
     res.render("auth/forgot-password", {
         errors: [],
@@ -249,27 +287,34 @@ router.get("/forgot-password", (req, res) => {
     });
 });
 
+// POST /forgot-password — Handle forgot password request and send reset email
 router.post(
     "/forgot-password",
-    authLimiter,
-    csrfProtection,
-    forgotPasswordValidation,
+    authLimiter, // Rate limit to prevent abuse
+    csrfProtection, // Validate CSRF token from the form
+    forgotPasswordValidation, // Validate email format
     async (req, res) => {
         try {
             const db = getDatabase();
             const { email } = req.body;
 
+            // Look up the user by email
             const user = await users.getUserByEmail(db, email);
 
-            // Always show success to prevent email enumeration
+            // SECURITY: Always show the same success message regardless of whether
+            // an account exists — this prevents email enumeration attacks
             if (user) {
+                // Generate and store a password reset token (1 hour expiry)
                 const rawToken = generateToken();
                 const tokenHash = hashToken(rawToken);
+                // This also invalidates any existing unused reset tokens for this user
                 await tokens.createPasswordResetToken(
                     db, user.id, tokenHash
                 );
+                // Send the raw token to the user's email as a reset link
                 sendPasswordResetEmail(email, rawToken);
 
+                // Log the reset request in the audit trail
                 await audit.logAuthAction(db, {
                     userId: user.id,
                     emailAttempted: email,
@@ -279,6 +324,7 @@ router.post(
                 });
             }
 
+            // Same response whether or not the user exists (prevents enumeration)
             res.render("auth/forgot-password", {
                 errors: [],
                 message:
@@ -294,14 +340,17 @@ router.post(
 
 // ==================== RESET PASSWORD ====================
 
+// GET /reset-password?token=... — Display the reset password form
 router.get("/reset-password", async (req, res) => {
     try {
+        // Extract the raw token from the query string
         const { token } = req.query;
         if (!token) {
             return res.status(400).send("Invalid reset link");
         }
 
         const db = getDatabase();
+        // Hash the token and verify it exists and hasn't expired
         const tokenHash = hashToken(token);
         const resetToken =
             await tokens.getPasswordResetToken(db, tokenHash);
@@ -312,8 +361,9 @@ router.get("/reset-password", async (req, res) => {
             );
         }
 
+        // Token is valid — show the password reset form with the token embedded
         res.render("auth/reset-password", {
-            token,
+            token, // Pass the raw token so it can be included in the POST form
             errors: [],
         });
     } catch (error) {
@@ -322,11 +372,12 @@ router.get("/reset-password", async (req, res) => {
     }
 });
 
+// POST /reset-password — Handle the new password submission
 router.post(
     "/reset-password",
-    authLimiter,
-    csrfProtection,
-    resetPasswordValidation,
+    authLimiter, // Rate limit to prevent brute-force attacks
+    csrfProtection, // Validate CSRF token from the form
+    resetPasswordValidation, // Validate password strength and confirmation match
     async (req, res) => {
         try {
             const { token, password } = req.body;
@@ -334,6 +385,7 @@ router.post(
                 return res.status(400).send("Invalid reset link");
             }
 
+            // Check for validation errors (password strength, confirmation match)
             const valErrors = validationResult(req);
             if (!valErrors.isEmpty()) {
                 return res.status(400).render("auth/reset-password", {
@@ -343,6 +395,7 @@ router.post(
             }
 
             const db = getDatabase();
+            // Re-verify the token is still valid (hasn't expired or been used)
             const tokenHash = hashToken(token);
             const resetToken =
                 await tokens.getPasswordResetToken(db, tokenHash);
@@ -353,11 +406,14 @@ router.post(
                 );
             }
 
+            // Update the user's password (will be hashed with bcrypt)
             await users.updateUserPassword(
                 db, resetToken.user_id, password
             );
+            // Mark the reset token as used to prevent reuse
             await tokens.markResetTokenUsed(db, resetToken.id);
 
+            // Log the completed password reset in the audit trail
             await audit.logAuthAction(db, {
                 userId: resetToken.user_id,
                 action: "password_reset_completed",
@@ -365,6 +421,7 @@ router.post(
                 userAgent: req.get("user-agent"),
             });
 
+            // Redirect to login with success message
             res.redirect(
                 "/login?message=Password reset successful. Please login."
             );
@@ -377,15 +434,20 @@ router.post(
 
 // ==================== LOGOUT ====================
 
+// POST /logout — Destroy the user's session and redirect to login
 router.post("/logout", (req, res) => {
+    // Destroy the server-side session data
     req.session.destroy((err) => {
         if (err) {
             console.error(err);
             return res.status(500).send("Logout failed");
         }
+        // Clear the session cookie from the browser
         res.clearCookie("connect.sid");
+        // Redirect to the login page
         res.redirect("/login");
     });
 });
 
+// Export the router for mounting in app.js
 module.exports = router;
