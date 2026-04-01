@@ -17,6 +17,14 @@ const { uploadProfileImage } = require("../lib/upload");
 const profiles = require("../queries/profiles");
 // Database query functions for user lookups
 const users = require("../queries/users");
+// Email utilities for sending verification emails and token generation/hashing
+const {
+    generateToken,
+    hashToken,
+    sendVerificationEmail,
+} = require("../lib/email");
+// Database query functions for verification token management
+const tokens = require("../queries/tokens");
 // Validation schemas for profile and all 5 sub-section forms
 const {
     profileValidation,
@@ -54,6 +62,7 @@ router.get("/", async (req, res) => {
         res.render("profile/view", {
             profile: fullProfile,
             user,
+            isVerified: req.session.user.is_verified,
         });
     } catch (error) {
         console.error(error);
@@ -61,7 +70,45 @@ router.get("/", async (req, res) => {
     }
 });
 
-// ==================== CREATE PROFILE ====================
+// ==================== RESEND VERIFICATION EMAIL ====================
+
+// POST /profile/resend-verification — Resend the email verification link
+router.post(
+    "/resend-verification",
+    csrfProtection,
+    async (req, res) => {
+        try {
+            const db = getDatabase();
+            const user = await users.getUserById(
+                db, req.session.user.id
+            );
+
+            // If user is already verified, just redirect back
+            if (!user || user.is_verified) {
+                return res.redirect("/profile");
+            }
+
+            // Generate a new verification token and hash it for storage
+            const rawToken = generateToken();
+            const tokenHash = hashToken(rawToken);
+
+            // Store the hashed token in the database (expires in 24 hours)
+            await tokens.createEmailVerificationToken(
+                db, user.id, tokenHash
+            );
+
+            // Send the raw token to the user's email
+            sendVerificationEmail(user.email, rawToken);
+
+            res.redirect("/profile");
+        } catch (error) {
+            console.error(error);
+            res.status(500).send("Server error");
+        }
+    }
+);
+
+// ==================== CREATE PROFILE ==
 
 // GET /profile/create — Display the profile creation form
 router.get("/create", async (req, res) => {

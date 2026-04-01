@@ -213,6 +213,24 @@ router.post(
             const cycle = await bids.getOrCreateTodayCycle(db);
             const userId = req.session.user.id;
 
+            // BUSINESS RULE: Cannot update a bid once the cycle is closed
+            if (cycle.status !== "open") {
+                const winCount = await bids.getMonthlyWinCount(db, userId);
+                const monthlyLimit = await bids.getMonthlyLimit(db, userId);
+                const canBid = await bids.canUserBid(db, userId);
+                const existingBidClosed = await bids.getUserBidForCycle(
+                    db, cycle.id, userId
+                );
+                return res.status(400).render("bids/place-bid", {
+                    cycle,
+                    existingBid: existingBidClosed,
+                    canBid,
+                    winCount,
+                    monthlyLimit,
+                    errors: ["Bidding is closed for today's cycle"],
+                });
+            }
+
             // Look up the user's existing bid for today's cycle
             const existingBid = await bids.getUserBidForCycle(
                 db, cycle.id, userId

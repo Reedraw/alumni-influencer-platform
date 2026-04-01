@@ -151,15 +151,16 @@ router.get("/featured-alumni/history", async (req, res) => {
         );
 
         // Query featured alumni joined with users table, ordered newest first
-        // Uses parameterized query to prevent SQL injection
+        // limit is interpolated directly (not as a prepared statement parameter)
+        // because mysql2's execute() has a known bug rejecting integer LIMIT params.
+        // Safe to interpolate since limit is already validated as an integer 1–100.
         const [rows] = await db.execute(
             `SELECT fa.featured_date, u.full_name,
                     fa.winning_bid_amount
              FROM featured_alumni fa
              JOIN users u ON fa.user_id = u.id
              ORDER BY fa.featured_date DESC
-             LIMIT ?`,
-            [limit]
+             LIMIT ${limit}`
         );
 
         // Return the array of featured alumni records as JSON

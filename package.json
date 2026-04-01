@@ -32,7 +32,8 @@
     "node-cron": "^4.2.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "uuidv4": "^6.2.13"
   },
   "devDependencies": {
     "jest": "^30.3.0",

@@ -156,6 +156,12 @@ router.get("/verify-email", async (req, res) => {
             userAgent: req.get("user-agent"),
         });
 
+        // If the user is currently logged in, update their session flag
+        if (req.session && req.session.user &&
+            req.session.user.id === verificationToken.user_id) {
+            req.session.user.is_verified = true;
+        }
+
         // Redirect to login with a success message
         res.redirect(
             "/login?message=Email verified successfully. Please login."
@@ -222,14 +228,6 @@ router.post(
                 });
             }
 
-            // Check if the user has verified their email address
-            if (!user.is_verified) {
-                return res.status(403).render("auth/login", {
-                    errors: ["Please verify your email first"],
-                    message: null,
-                });
-            }
-
             // Verify the submitted password against the stored bcrypt hash
             const validPassword = await verifyPassword(
                 password,
@@ -253,10 +251,12 @@ router.post(
 
             // Authentication successful — create a session with user data
             // Only store essential user info in the session (not the password hash)
+            // Include is_verified so the profile page can show a verification banner
             req.session.user = {
                 id: user.id,
                 full_name: user.full_name,
                 email: user.email,
+                is_verified: user.is_verified,
             };
 
             // Log the successful login in the audit trail

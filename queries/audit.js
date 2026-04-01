@@ -1,4 +1,5 @@
-// UUID generator for creating unique audit log record IDs\nconst { v4: uuidv4 } = require("uuid");
+// UUID generator for creating unique audit log record IDs
+const { v4: uuidv4 } = require("uuid");
 
 /**
  * Log an authentication action for the security audit trail.

@@ -197,7 +197,7 @@ async function getHighestBidForCycle(db, cycleId) {
     const [rows] = await db.execute(
         `SELECT * FROM bids
          WHERE cycle_id = ?
-         ORDER BY current_bid_amount DESC
+         ORDER BY current_bid_amount DESC, created_at ASC
          LIMIT 1`,
         [cycleId]
     );

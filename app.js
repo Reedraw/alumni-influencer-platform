@@ -91,6 +91,12 @@ app.use((err, req, res, next) => {
     res.status(500).send("Something went wrong");
 });
 
+// DEV-ONLY: Mount dev utility routes under /dev — never loaded in production
+if (process.env.NODE_ENV !== "production") {
+    const devRoutes = require("./routes/devRoutes");
+    app.use("/dev", devRoutes);
+}
+
 // Only start the server when this file is run directly (not when imported for testing)
 if (require.main === module) {
     const { connectToDb } = require("./lib/database"); // Database connection pool
