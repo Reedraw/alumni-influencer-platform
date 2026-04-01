@@ -1,0 +1,18 @@
+Step by step Todo list to create the project
+
+- Project Structure
+- Dependencies
+
+Database
+- Create Database
+- Generate a Schema with the necessary tables
+- Create Helper functions, init, get, connect, close
+
+Frontend
+- Create basic EJS webpages
+- Comment where backend will be needed
+
+Backend
+- Go through each frontend page and create necessary backend
+
+

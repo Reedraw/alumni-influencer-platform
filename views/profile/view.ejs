@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Profile - Alumni Influencers</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        .profile-header { display: flex; align-items: center; gap: 20px; margin-bottom: 30px; }
+        .profile-image { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; background: #e5e7eb; }
+        .section { margin-bottom: 30px; border-bottom: 1px solid #e5e7eb; padding-bottom: 20px; }
+        .section h2 { color: #1f2937; }
+        .item { background: #f9fafb; padding: 12px; margin: 8px 0; border-radius: 6px; }
+        .item strong { display: block; }
+        a.btn { display: inline-block; padding: 8px 16px; background: #2563eb; color: white; text-decoration: none; border-radius: 4px; margin-top: 10px; }
+        a.btn:hover { background: #1d4ed8; }
+        nav { margin-bottom: 20px; }
+        nav a { margin-right: 15px; }
+        .badge { display: inline-block; background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/profile">Profile</a>
+        <a href="/bids">Bids</a>
+        <a href="/api-keys">API Keys</a>
+        <form method="POST" action="/logout" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" style="background:none;color:#2563eb;border:none;cursor:pointer;padding:0;">Logout</button>
+        </form>
+    </nav>
+
+    <div class="profile-header">
+        <% if (profile.profile_image_path) { %>
+            <img src="/<%= profile.profile_image_path %>" alt="Profile Image" class="profile-image">
+        <% } else { %>
+            <div class="profile-image" style="display:flex;align-items:center;justify-content:center;font-size:2em;color:#9ca3af;">?</div>
+        <% } %>
+        <div>
+            <h1><%= user.full_name %></h1>
+            <p><%= user.email %></p>
+            <% if (profile.linkedin_url) { %>
+                <p><a href="<%= profile.linkedin_url %>" target="_blank">LinkedIn Profile</a></p>
+            <% } %>
+        </div>
+    </div>
+
+    <% if (profile.biography) { %>
+    <div class="section">
+        <h2>Biography</h2>
+        <p><%= profile.biography %></p>
+    </div>
+    <% } %>
+
+    <% if (profile.degrees && profile.degrees.length > 0) { %>
+    <div class="section">
+        <h2>Degrees</h2>
+        <% profile.degrees.forEach(function(d) { %>
+            <div class="item">
+                <strong><%= d.degree_name %></strong>
+                <% if (d.institution_name) { %><span><%= d.institution_name %></span><% } %>
+                <% if (d.completion_date) { %><span> | Completed: <%= new Date(d.completion_date).toLocaleDateString() %></span><% } %>
+                <% if (d.degree_url) { %><br><a href="<%= d.degree_url %>" target="_blank">View Details</a><% } %>
+            </div>
+        <% }); %>
+    </div>
+    <% } %>
+
+    <% if (profile.certifications && profile.certifications.length > 0) { %>
+    <div class="section">
+        <h2>Certifications</h2>
+        <% profile.certifications.forEach(function(c) { %>
+            <div class="item">
+                <strong><%= c.certification_name %></strong>
+                <% if (c.provider_name) { %><span><%= c.provider_name %></span><% } %>
+                <% if (c.completion_date) { %><span> | Completed: <%= new Date(c.completion_date).toLocaleDateString() %></span><% } %>
+                <% if (c.course_url) { %><br><a href="<%= c.course_url %>" target="_blank">View Details</a><% } %>
+            </div>
+        <% }); %>
+    </div>
+    <% } %>
+
+    <% if (profile.licences && profile.licences.length > 0) { %>
+    <div class="section">
+        <h2>Professional Licences</h2>
+        <% profile.licences.forEach(function(l) { %>
+            <div class="item">
+                <strong><%= l.licence_name %></strong>
+                <% if (l.awarding_body_name) { %><span><%= l.awarding_body_name %></span><% } %>
+                <% if (l.completion_date) { %><span> | Completed: <%= new Date(l.completion_date).toLocaleDateString() %></span><% } %>
+                <% if (l.awarding_body_url) { %><br><a href="<%= l.awarding_body_url %>" target="_blank">View Details</a><% } %>
+            </div>
+        <% }); %>
+    </div>
+    <% } %>
+
+    <% if (profile.shortCourses && profile.shortCourses.length > 0) { %>
+    <div class="section">
+        <h2>Short Courses</h2>
+        <% profile.shortCourses.forEach(function(c) { %>
+            <div class="item">
+                <strong><%= c.course_name %></strong>
+                <% if (c.provider_name) { %><span><%= c.provider_name %></span><% } %>
+                <% if (c.completion_date) { %><span> | Completed: <%= new Date(c.completion_date).toLocaleDateString() %></span><% } %>
+                <% if (c.course_url) { %><br><a href="<%= c.course_url %>" target="_blank">View Details</a><% } %>
+            </div>
+        <% }); %>
+    </div>
+    <% } %>
+
+    <% if (profile.employment && profile.employment.length > 0) { %>
+    <div class="section">
+        <h2>Employment History</h2>
+        <% profile.employment.forEach(function(e) { %>
+            <div class="item">
+                <strong><%= e.job_title %> at <%= e.employer_name %></strong>
+                <% if (e.is_current_role) { %><span class="badge">Current</span><% } %>
+                <% if (e.start_date) { %><span>From: <%= new Date(e.start_date).toLocaleDateString() %></span><% } %>
+                <% if (e.end_date) { %><span> - To: <%= new Date(e.end_date).toLocaleDateString() %></span><% } %>
+                <% if (e.description) { %><p><%= e.description %></p><% } %>
+            </div>
+        <% }); %>
+    </div>
+    <% } %>
+
+    <a href="/profile/edit" class="btn">Edit Profile</a>
+</body>
+</html>

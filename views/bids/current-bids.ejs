@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Bids - Alumni Influencers</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        .status-card { padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .winning { background: #ecfdf5; border: 1px solid #a7f3d0; }
+        .losing { background: #fef2f2; border: 1px solid #fecaca; }
+        .no-bid { background: #f3f4f6; border: 1px solid #d1d5db; }
+        .info { background: #eff6ff; border: 1px solid #bfdbfe; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; }
+        a.btn { display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 4px; }
+        a.btn:hover { background: #1d4ed8; }
+        nav { margin-bottom: 20px; }
+        nav a { margin-right: 15px; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/profile">Profile</a>
+        <a href="/bids">Bids</a>
+        <a href="/api-keys">API Keys</a>
+        <form method="POST" action="/logout" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" style="background:none;color:#2563eb;border:none;cursor:pointer;padding:0;">Logout</button>
+        </form>
+    </nav>
+
+    <h1>Bidding Dashboard</h1>
+
+    <div class="info">
+        <strong>Monthly Features:</strong> <%= winCount %> / <%= monthlyLimit %> used
+        <% if (!canBid) { %><br><em>You have reached your monthly feature limit.</em><% } %>
+    </div>
+
+    <!-- Current Bid Status -->
+    <h2>Today's Bid (<%= cycle.cycle_date %>)</h2>
+    <% if (bidStatus) { %>
+        <div class="status-card <%= bidStatus.is_winning ? 'winning' : 'losing' %>">
+            <h3>Your Bid: &pound;<%= parseFloat(bidStatus.current_bid_amount).toFixed(2) %></h3>
+            <p>Status: <strong><%= bidStatus.is_winning ? 'WINNING' : 'NOT WINNING' %></strong></p>
+            <p>
+                <a href="/bids/place" class="btn">Update Bid</a>
+            </p>
+        </div>
+    <% } else { %>
+        <div class="status-card no-bid">
+            <p>You have not placed a bid today.</p>
+            <% if (canBid) { %>
+                <a href="/bids/place" class="btn">Place a Bid</a>
+            <% } %>
+        </div>
+    <% } %>
+
+    <!-- Bid History -->
+    <% if (bidHistory && bidHistory.length > 0) { %>
+    <h2>Bid History</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Winner?</th>
+            </tr>
+        </thead>
+        <tbody>
+            <% bidHistory.forEach(function(b) { %>
+                <tr>
+                    <td><%= b.cycle_date %></td>
+                    <td>&pound;<%= parseFloat(b.current_bid_amount).toFixed(2) %></td>
+                    <td><%= b.bid_status %></td>
+                    <td><%= b.is_winner ? 'Yes' : 'No' %></td>
+                </tr>
+            <% }); %>
+        </tbody>
+    </table>
+    <% } %>
+</body>
+</html>

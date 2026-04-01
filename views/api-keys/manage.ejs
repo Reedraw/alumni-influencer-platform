@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Keys - Alumni Influencers</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        .error { color: red; margin-bottom: 10px; }
+        .token-display { background: #ecfdf5; border: 1px solid #a7f3d0; padding: 15px; border-radius: 8px; margin: 15px 0; word-break: break-all; }
+        .warning { background: #fffbeb; border: 1px solid #fed7aa; padding: 10px; border-radius: 8px; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input { padding: 8px; margin-top: 4px; }
+        button { padding: 8px 16px; cursor: pointer; }
+        .btn-primary { background: #2563eb; color: white; border: none; }
+        .btn-danger { background: #dc2626; color: white; border: none; }
+        .section { margin: 30px 0; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; }
+        .stats { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; }
+        nav { margin-bottom: 20px; }
+        nav a { margin-right: 15px; }
+        .active { color: #dc2626; }
+        .inactive { color: #6b7280; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/profile">Profile</a>
+        <a href="/bids">Bids</a>
+        <a href="/api-keys">API Keys</a>
+        <form method="POST" action="/logout" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" style="background:none;color:#2563eb;border:none;cursor:pointer;padding:0;">Logout</button>
+        </form>
+    </nav>
+
+    <h1>API Key Management</h1>
+
+    <% if (errors && errors.length > 0) { %>
+        <div class="error">
+            <ul>
+                <% errors.forEach(function(err) { %>
+                    <li><%= err %></li>
+                <% }); %>
+            </ul>
+        </div>
+    <% } %>
+
+    <% if (newToken) { %>
+        <div class="token-display">
+            <strong>Your new API token (copy it now - it won't be shown again):</strong>
+            <p style="font-family: monospace; font-size: 14px;"><%= newToken %></p>
+        </div>
+        <div class="warning">
+            <strong>Important:</strong> Save this token securely. You will not be able to see it again.
+            <br>Use it as a Bearer token in your Authorization header:
+            <br><code>Authorization: Bearer &lt;your-token&gt;</code>
+        </div>
+    <% } %>
+
+    <!-- Generate New Key -->
+    <div class="section">
+        <h2>Generate New API Key</h2>
+        <form method="POST" action="/api-keys/generate">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <label>Token Name</label>
+            <input type="text" name="token_name" required placeholder="e.g. AR Client Production">
+            <button type="submit" class="btn-primary">Generate Key</button>
+        </form>
+    </div>
+
+    <!-- Existing Keys -->
+    <div class="section">
+        <h2>Your API Keys</h2>
+        <% if (tokens && tokens.length > 0) { %>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Expires</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% tokens.forEach(function(t) { %>
+                        <tr>
+                            <td><%= t.token_name %></td>
+                            <td class="<%= t.is_active ? 'active' : 'inactive' %>">
+                                <%= t.is_active ? 'Active' : 'Revoked' %>
+                            </td>
+                            <td><%= new Date(t.created_at).toLocaleDateString() %></td>
+                            <td><%= t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never' %></td>
+                            <td>
+                                <a href="/api-keys/<%= t.id %>/stats"><button class="btn-primary">Stats</button></a>
+                                <% if (t.is_active) { %>
+                                    <form method="POST" action="/api-keys/<%= t.id %>/revoke" style="display:inline;">
+                                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                                        <button type="submit" class="btn-danger">Revoke</button>
+                                    </form>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        <% } else { %>
+            <p>No API keys yet. Generate one above.</p>
+        <% } %>
+    </div>
+
+    <!-- Stats -->
+    <% if (stats && selectedTokenId) { %>
+    <div class="section">
+        <h2>Usage Statistics</h2>
+        <div class="stats">
+            <p><strong>Total Requests:</strong> <%= stats.total_requests %></p>
+            <p><strong>First Used:</strong> <%= stats.first_used ? new Date(stats.first_used).toLocaleString() : 'Never' %></p>
+            <p><strong>Last Used:</strong> <%= stats.last_used ? new Date(stats.last_used).toLocaleString() : 'Never' %></p>
+            <p><strong>Unique Endpoints:</strong> <%= stats.unique_endpoints %></p>
+        </div>
+
+        <% if (logs && logs.length > 0) { %>
+            <h3>Recent Requests</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Method</th>
+                        <th>Endpoint</th>
+                        <th>Status</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% logs.forEach(function(log) { %>
+                        <tr>
+                            <td><%= new Date(log.created_at).toLocaleString() %></td>
+                            <td><%= log.http_method %></td>
+                            <td><%= log.endpoint_accessed %></td>
+                            <td><%= log.response_status_code || '-' %></td>
+                            <td><%= log.ip_address || '-' %></td>
+                        </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        <% } %>
+    </div>
+    <% } %>
+
+    <div class="section">
+        <h2>API Documentation</h2>
+        <p>View the full API documentation at <a href="/api-docs" target="_blank">/api-docs</a></p>
+    </div>
+</body>
+</html>
