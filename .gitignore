@@ -42,6 +42,7 @@ build/
 
 scripts/
 AGENTS.md
+todo.txt
 context/
 
 tests/

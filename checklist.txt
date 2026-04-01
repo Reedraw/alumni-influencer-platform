@@ -10,7 +10,6 @@ Database
 
 Frontend
 - Create basic EJS webpages
-- Comment where backend will be needed
 
 Backend
 - Go through each frontend page and create necessary backend
