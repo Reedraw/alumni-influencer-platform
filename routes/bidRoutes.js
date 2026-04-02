@@ -29,9 +29,11 @@ router.use(requireAuth);
 // GET /bids — Display today's bidding cycle status and the user's bid history
 router.get("/", async (req, res) => {
     try {
+        // Get the shared database connection for bid-related queries.
         const db = getDatabase();
-        // Get or create today's bidding cycle (ensures one exists)
+        // Get or create today's bidding cycle so the page always has an active record.
         const cycle = await bids.getOrCreateTodayCycle(db);
+        // Read the currently logged-in user's ID from the session.
         const userId = req.session.user.id;
 
         // Get the user's bid status for today (blind — only shows own bid info)
