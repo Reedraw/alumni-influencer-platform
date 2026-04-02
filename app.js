@@ -23,7 +23,7 @@ const apiKeyRoutes = require("./routes/apiKeyRoutes"); // API key management
 // Create the Express application instance
 const app = express();
 
-// Apply Helmet for secure HTTP headers (CSP disabled to allow inline EJS styles)
+// Apply Helmet for secure HTTP headers
 app.use(helmet({
     contentSecurityPolicy: false,
 }));

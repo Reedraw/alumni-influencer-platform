@@ -66,7 +66,9 @@ router.post(
                 });
             }
 
+            // Get the shared database connection for checking and creating users.
             const db = getDatabase();
+            // Read the submitted registration fields from the form payload.
             const { full_name, email, password } = req.body;
 
             // Check if email is already registered to prevent duplicates

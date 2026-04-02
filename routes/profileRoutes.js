@@ -134,8 +134,7 @@ router.get("/create", async (req, res) => {
 // POST /profile/create — Handle profile creation form submission with optional image upload
 router.post(
     "/create",
-    // IMPORTANT: Multer runs BEFORE CSRF — multer parses multipart form data
-    // including the _csrf field, so CSRF validation must happen after parsing
+    // IMPORTANT: Multer runs BEFORE CSRF — multer parses multipart form data including the _csrf field, so CSRF validation must happen after parsing
     uploadProfileImage.single("profile_image"),
     csrfProtection,
     profileValidation, // Validate biography and LinkedIn URL
