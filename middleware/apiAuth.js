@@ -71,4 +71,33 @@ async function requireApiAuth(req, res, next) {
     }
 }
 
-module.exports = { requireApiAuth };
+/**
+ * Middleware factory to enforce API key permission scoping.
+ * Pass one or more required permission strings; the request is allowed
+ * if the token has AT LEAST ONE of them (OR logic).
+ * Must be used AFTER requireApiAuth so req.apiToken is populated.
+ *
+ * Example:
+ *   router.get("/endpoint", requireApiAuth, requirePermission("read:analytics"), handler);
+ *
+ * @param {...string} required - One or more permission strings
+ */
+function requirePermission(...required) {
+    return (req, res, next) => {
+        // Parse the comma-separated permissions stored on the token record
+        const tokenPerms = (req.apiToken.permissions || "")
+            .split(",")
+            .map((p) => p.trim());
+
+        // Allow if the token has at least one of the required permissions
+        const granted = required.some((p) => tokenPerms.includes(p));
+        if (!granted) {
+            return res.status(403).json({
+                error: `Insufficient permissions. Required: ${required.join(" or ")}`,
+            });
+        }
+        next();
+    };
+}
+
+module.exports = { requireApiAuth, requirePermission };

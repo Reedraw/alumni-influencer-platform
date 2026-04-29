@@ -64,8 +64,23 @@
         <form method="POST" action="/api-keys/generate">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <label>Token Name</label>
-            <input type="text" name="token_name" required placeholder="e.g. AR Client Production">
-            <button type="submit" class="btn-primary">Generate Key</button>
+            <input type="text" name="token_name" required placeholder="e.g. Analytics Dashboard">
+            <label style="margin-top:14px;">Permissions</label>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-weight:normal;display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" name="permissions" value="read:alumni_of_day" checked>
+                    <span><code>read:alumni_of_day</code> — Alumni of the Day (AR App)</span>
+                </label>
+                <label style="font-weight:normal;display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" name="permissions" value="read:alumni">
+                    <span><code>read:alumni</code> — Full alumni data (Analytics Dashboard)</span>
+                </label>
+                <label style="font-weight:normal;display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" name="permissions" value="read:analytics">
+                    <span><code>read:analytics</code> — Aggregated analytics (Analytics Dashboard)</span>
+                </label>
+            </div>
+            <button type="submit" class="btn-primary" style="margin-top:14px;">Generate Key</button>
         </form>
     </div>
 
@@ -77,6 +92,7 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Permissions</th>
                         <th>Status</th>
                         <th>Created</th>
                         <th>Expires</th>
@@ -87,6 +103,11 @@
                     <% tokens.forEach(function(t) { %>
                         <tr>
                             <td><%= t.token_name %></td>
+                            <td style="font-size:12px;">
+                                <% (t.permissions || 'read:alumni_of_day').split(',').forEach(function(p) { %>
+                                    <span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;margin-right:3px;white-space:nowrap;"><%= p.trim() %></span>
+                                <% }); %>
+                            </td>
                             <td class="<%= t.is_active ? 'active' : 'inactive' %>">
                                 <%= t.is_active ? 'Active' : 'Revoked' %>
                             </td>

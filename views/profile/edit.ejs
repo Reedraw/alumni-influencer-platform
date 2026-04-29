@@ -261,7 +261,10 @@
                 <input type="date" name="start_date" value="<%= editEmployment && editEmployment.start_date ? new Date(editEmployment.start_date).toISOString().split('T')[0] : '' %>">
                 <label>End Date</label>
                 <input type="date" name="end_date" value="<%= editEmployment && editEmployment.end_date ? new Date(editEmployment.end_date).toISOString().split('T')[0] : '' %>">
-                <label><input type="checkbox" name="is_current_role" <%= editEmployment && editEmployment.is_current_role ? 'checked' : '' %>> Current Role</label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" name="is_current_role" <%= editEmployment && editEmployment.is_current_role ? 'checked' : '' %>>
+                    Current Role
+                </label>
                 <label>Description</label>
                 <textarea name="description"><%= editEmployment ? (editEmployment.description || '') : '' %></textarea>
                 <button type="submit" class="btn-primary"><%= editEmployment ? 'Update' : 'Add' %> Employment</button>

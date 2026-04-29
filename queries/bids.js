@@ -352,6 +352,27 @@ async function getTodayFeaturedAlumni(db) {
 }
 
 /**
+ * Get a paginated list of past featured alumni, newest first.
+ * Used by the history endpoint to show which alumni have been featured
+ * and what winning bid amount secured their spot.
+ * @param {object} db - MySQL connection pool
+ * @param {number} limit - Maximum number of records to return (1–100)
+ * @returns {Promise<Array>} Array of { featured_date, full_name, winning_bid_amount }
+ */
+async function getFeaturedAlumniHistory(db, limit) {
+    // limit is validated as an integer 1–100 at the route level before calling here.
+    // Interpolated directly because mysql2's execute() rejects integer LIMIT params.
+    const [rows] = await db.execute(
+        `SELECT fa.featured_date, u.full_name, fa.winning_bid_amount
+         FROM featured_alumni fa
+         JOIN users u ON fa.user_id = u.id
+         ORDER BY fa.featured_date DESC
+         LIMIT ${limit}`
+    );
+    return rows;
+}
+
+/**
  * Get a user's complete bid history across all bidding cycles.
  * Joins with bidding_cycles to show the date and status of each cycle.
  * Used to display the bid history table on the user's bidding page.
@@ -419,6 +440,7 @@ module.exports = {
     canUserBid,
     createFeaturedAlumni,
     getTodayFeaturedAlumni,
+    getFeaturedAlumniHistory,
     getUserBidHistory,
     markBidAsWinner,
     markOtherBidsAsLosing,
