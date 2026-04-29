@@ -2,14 +2,16 @@
 
 A web application for university alumni engagement built for the University of Eastminster. Alumni register, build professional profiles, and participate in a daily blind bidding system to become the featured **Alumni of the Day** — a 24-hour spotlight visible to all students via a public API.
 
+This is **Part 1** of a two-part system. Part 2 ([Alumni Dashboard](../Alumni_Dashboard/README.md)) is a separate client application that consumes this API to provide analytics intelligence to university staff.
+
 ## Features
 
 - **Registration & Authentication** — Email-based registration (university domain only), email verification with secure tokens, login/logout with sessions, password reset flow
 - **Alumni Profiles** — Biography, LinkedIn URL, profile image upload, degrees, certifications, licences, short courses, and employment history (all with full CRUD)
 - **Blind Bidding System** — Place bids without seeing the highest bid, increase-only updates, win/lose status feedback, monthly limit enforcement (3 wins/month, 4 with event attendance), automated 6 PM winner selection
-- **API Key Management** — Generate/revoke bearer tokens, view usage statistics and request logs per key
-- **Public Developer API** — `GET /api/featured-alumni` for today's Alumni of the Day, `GET /api/featured-alumni/history` for past winners, full Swagger documentation at `/api-docs`
-- **Security** — Bcrypt password hashing (12 rounds), Helmet HTTP headers, CSRF protection, rate limiting, parameterized SQL queries, input validation/sanitisation, SHA-256 token hashing, auth audit logging
+- **Scoped API Key Management** — Generate bearer tokens scoped to specific permission sets (`read:alumni_of_day`, `read:alumni`, `read:analytics`), revoke keys, view per-key usage statistics and full request logs
+- **Public Developer API** — Featured alumni endpoints plus a full suite of analytics endpoints for the university dashboard, with Swagger documentation at `/api-docs`
+- **Security** — Bcrypt password hashing (12 rounds), Helmet HTTP headers, CSRF protection, rate limiting (100 req/15 min), parameterised SQL queries, input validation/sanitisation, SHA-256 token hashing, auth audit logging
 
 ## Tech Stack
 
@@ -39,23 +41,24 @@ lib/
   upload.js             # Multer config (UUID filenames, image filter)
   csrf.js               # CSRF protection middleware
   swagger.js            # OpenAPI specification
-  rate-limit.js         # In-memory rate limiter
+  rate-limit.js         # In-memory rate limiter (100 req/15 min per IP)
 routes/
   authRoutes.js         # Register, login, verify, reset password
   profileRoutes.js      # Profile CRUD with all sub-sections
   bidRoutes.js          # Place/update bids, view dashboard
-  apiRoutes.js          # Public featured alumni endpoints
-  apiKeyRoutes.js       # API key management
+  apiRoutes.js          # Public API: featured alumni + analytics endpoints
+  apiKeyRoutes.js       # API key management UI
 queries/
   users.js              # User CRUD operations
   tokens.js             # Verification & reset token queries
   profiles.js           # Profile & sub-section queries
-  bids.js               # Bidding cycle & bid queries
-  apiTokens.js          # API token queries & request logging
+  bids.js               # Bidding cycle, bid queries, featured alumni history
+  apiTokens.js          # API token CRUD, permission storage, request logging
+  analytics.js          # Aggregate analytics queries for the dashboard API
   audit.js              # Auth audit log queries
 middleware/
   auth.js               # Session authentication guard
-  apiAuth.js            # Bearer token authentication
+  apiAuth.js            # Bearer token auth + permission enforcement
   validation.js         # Validation error extraction
 models/
   authSchema.js         # Registration, login, reset validation
@@ -65,7 +68,7 @@ views/
   auth/                 # Register, login, verify, forgot/reset password
   profile/              # Create, view, edit profile
   bids/                 # Dashboard, place bid
-  api-keys/             # Key management with stats/logs
+  api-keys/             # Key management with permission badges, stats/logs
 jobs/
   biddingCycle.js       # Daily 6 PM winner selection cron
   cleanupTokens.js      # Hourly expired token cleanup cron
@@ -123,6 +126,8 @@ tests/
 
 ## Environment Variables
 
+See `.env.example` for a full template with all required variables. Key settings:
+
 | Variable | Description |
 |----------|-------------|
 | `DB_HOST` | MySQL host (default: `localhost`) |
@@ -132,8 +137,7 @@ tests/
 | `DB_NAME` | Database name (default: `alumni_influencers`) |
 | `PORT` | Server port (default: `3000`) |
 | `SESSION_SECRET` | Long random string for session signing |
-| `JWT_SECRET` | Long random string for JWT signing |
-| `ALLOWED_EMAIL_DOMAIN` | Permitted email domain for registration (e.g. `eastminster.ac.uk`) |
+| `ALLOWED_EMAIL_DOMAIN` | Permitted registration domain (e.g. `eastminster.ac.uk`) |
 
 ## Scripts
 
@@ -147,12 +151,38 @@ npm test        # Run all tests (Jest)
 
 Interactive Swagger docs are available at `/api-docs` when the server is running.
 
+All API endpoints require a Bearer token. Tokens are scoped — each key only grants access to the permissions it was issued with.
+
+### Permission Scopes
+
+| Scope | Grants Access To |
+|-------|-----------------|
+| `read:alumni_of_day` | Featured alumni endpoints (AR app) |
+| `read:alumni` | Full alumni list with filters |
+| `read:analytics` | All analytics aggregate endpoints |
+
 ### Endpoints
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/featured-alumni` | Bearer token | Today's Alumni of the Day |
-| `GET` | `/api/featured-alumni/history` | Bearer token | Past featured alumni |
+| Method | Endpoint | Required Permission | Description |
+|--------|----------|---------------------|-------------|
+| `GET` | `/api/featured-alumni` | `read:alumni_of_day` | Today's Alumni of the Day with full profile |
+| `GET` | `/api/featured-alumni/history` | `read:alumni_of_day` | Past featured alumni (up to 30) |
+| `GET` | `/api/alumni` | `read:alumni` | Alumni list, filterable by programme, sector, graduation year |
+| `GET` | `/api/analytics/certifications` | `read:analytics` | Top certifications ranked by frequency |
+| `GET` | `/api/analytics/courses` | `read:analytics` | Top short courses ranked by frequency |
+| `GET` | `/api/analytics/employment` | `read:analytics` | Current employment sectors breakdown |
+| `GET` | `/api/analytics/degrees` | `read:analytics` | Degree programme distribution |
+| `GET` | `/api/analytics/bidding` | `read:analytics` | Bidding activity trends (last 60 days) |
+| `GET` | `/api/analytics/graduation-years` | `read:analytics` | Graduate count by graduation year |
+
+### Generating an API Key
+
+Log in, navigate to **API Keys**, and click **Generate New Key**. Select the permission scopes appropriate for your client:
+
+- **AR / mobile app** — tick `read:alumni_of_day` only
+- **University analytics dashboard** — tick `read:alumni` and `read:analytics`
+
+The raw token is shown once on generation. Copy it immediately — only a SHA-256 hash is stored.
 
 ## Testing
 

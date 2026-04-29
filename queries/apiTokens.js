@@ -15,7 +15,7 @@ const crypto = require("crypto");
  * @param {Date|null} data.expiresAt - Optional expiration date (null = never expires)
  * @returns {Promise<{id: string, rawToken: string}>} Token ID and the raw token (shown once)
  */
-async function createApiToken(db, { userId, tokenName, expiresAt }) {
+async function createApiToken(db, { userId, tokenName, expiresAt, permissions }) {
     const id = uuidv4(); // Unique ID for this token record
     // Generate 32 bytes of cryptographically secure random data as hex string
     const rawToken = crypto.randomBytes(32).toString("hex");
@@ -25,12 +25,17 @@ async function createApiToken(db, { userId, tokenName, expiresAt }) {
         .update(rawToken)
         .digest("hex");
 
+    // Normalise permissions to a comma-separated string; default to least-privilege scope
+    const permissionsStr = Array.isArray(permissions)
+        ? permissions.join(",")
+        : (permissions || "read:alumni_of_day");
+
     // Insert the hashed token into the database using parameterised query
     await db.execute(
         `INSERT INTO api_tokens
-            (id, user_id, token_hash, token_name, is_active, expires_at)
-         VALUES (?, ?, ?, ?, TRUE, ?)`,
-        [id, userId, tokenHash, tokenName, expiresAt || null]
+            (id, user_id, token_hash, token_name, permissions, is_active, expires_at)
+         VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
+        [id, userId, tokenHash, tokenName, permissionsStr, expiresAt || null]
     );
 
     // Return both the ID and raw token — raw token is shown to user only once
@@ -68,7 +73,7 @@ async function getApiTokenByHash(db, tokenHash) {
 async function getApiTokensByUserId(db, userId) {
     const [rows] = await db.execute(
         // Select specific columns — deliberately excludes token_hash for security
-        `SELECT id, user_id, token_name, is_active, expires_at, created_at
+        `SELECT id, user_id, token_name, permissions, is_active, expires_at, created_at
          FROM api_tokens
          WHERE user_id = ?
          ORDER BY created_at DESC`,

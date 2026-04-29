@@ -207,6 +207,8 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     user_id CHAR(36) NULL,
     token_hash VARCHAR(255) NOT NULL UNIQUE,
     token_name VARCHAR(255) NOT NULL,
+    -- Comma-separated list of scopes e.g. 'read:alumni,read:analytics'
+    permissions VARCHAR(500) NOT NULL DEFAULT 'read:alumni_of_day',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     expires_at DATETIME NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -277,3 +279,9 @@ CREATE INDEX idx_api_request_logs_api_token_id ON api_request_logs(api_token_id)
 CREATE INDEX idx_api_request_logs_user_id ON api_request_logs(user_id);
 CREATE INDEX idx_api_request_logs_endpoint_accessed ON api_request_logs(endpoint_accessed);
 CREATE INDEX idx_api_request_logs_created_at ON api_request_logs(created_at);
+
+-- =========================================================
+-- MIGRATION: Run this if the database was created before
+-- permissions scoping was added (adds the column to existing tables)
+-- =========================================================
+-- ALTER TABLE api_tokens ADD COLUMN permissions VARCHAR(500) NOT NULL DEFAULT 'read:alumni_of_day';

@@ -6,13 +6,15 @@ const router = express.Router();
 // Database connection pool accessor
 const { getDatabase } = require("../lib/database");
 // Bearer token authentication middleware for API endpoints
-const { requireApiAuth } = require("../middleware/apiAuth");
+const { requireApiAuth, requirePermission } = require("../middleware/apiAuth");
 // In-memory rate limiting factory to prevent API abuse
 const { rateLimit } = require("../lib/rate-limit");
 // Database query functions for bidding and featured alumni data
 const bids = require("../queries/bids");
 // Database query functions for profile and sub-section data
 const profiles = require("../queries/profiles");
+// Analytics aggregate query functions for the university dashboard
+const analytics = require("../queries/analytics");
 
 // Apply rate limiting: max 100 requests per 15-minute window per IP
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
@@ -145,25 +147,8 @@ router.get("/featured-alumni/history", async (req, res) => {
     try {
         const db = getDatabase();
         // Parse limit from query string, default 30, cap at 100 to prevent abuse
-        const limit = Math.min(
-            parseInt(req.query.limit) || 30,
-            100
-        );
-
-        // Query featured alumni joined with users table, ordered newest first
-        // limit is interpolated directly (not as a prepared statement parameter)
-        // because mysql2's execute() has a known bug rejecting integer LIMIT params.
-        // Safe to interpolate since limit is already validated as an integer 1–100.
-        const [rows] = await db.execute(
-            `SELECT fa.featured_date, u.full_name,
-                    fa.winning_bid_amount
-             FROM featured_alumni fa
-             JOIN users u ON fa.user_id = u.id
-             ORDER BY fa.featured_date DESC
-             LIMIT ${limit}`
-        );
-
-        // Return the array of featured alumni records as JSON
+        const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+        const rows = await bids.getFeaturedAlumniHistory(db, limit);
         res.json(rows);
     } catch (error) {
         console.error(error);
@@ -173,3 +158,92 @@ router.get("/featured-alumni/history", async (req, res) => {
 
 // Export the router for mounting in app.js
 module.exports = router;
+
+// ==================== ANALYTICS ENDPOINTS ====================
+// All analytics endpoints require read:analytics permission.
+// The dashboard API key must be scoped with this permission.
+
+// GET /api/analytics/certifications — Top certifications held by alumni, ranked by frequency
+router.get("/analytics/certifications", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getTopCertifications(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/courses — Most popular short courses completed by alumni
+router.get("/analytics/courses", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getTopShortCourses(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/employment — Current job roles held by alumni (career sectors)
+router.get("/analytics/employment", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getEmploymentSectors(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/degrees — Degree programmes and number of alumni per programme
+router.get("/analytics/degrees", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getDegreeBreakdown(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/bidding — Daily bid counts and averages over the last 60 days
+router.get("/analytics/bidding", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getBiddingTrends(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/alumni — Filterable alumni list with basic profile info
+// Query params: programme (degree_name), sector (job_title), graduation_year
+router.get("/analytics/alumni", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getAlumniList(db, req.query);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/analytics/graduation-years — Number of alumni per graduation year
+router.get("/analytics/graduation-years", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getGraduationYearDistribution(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});

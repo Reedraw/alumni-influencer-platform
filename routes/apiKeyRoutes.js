@@ -64,11 +64,25 @@ router.post("/generate", csrfProtection, async (req, res) => {
             });
         }
 
+        // Parse permissions from checkboxes (req.body.permissions is an array or string or undefined)
+        const rawPerms = req.body.permissions;
+        const permissionsArray = Array.isArray(rawPerms)
+            ? rawPerms
+            : rawPerms
+            ? [rawPerms]
+            : [];
+
+        // Default to least-privilege scope if nothing selected
+        const permissions = permissionsArray.length > 0
+            ? permissionsArray
+            : ["read:alumni_of_day"];
+
         // Create the token — returns the raw token (shown once) and its DB id
         // The raw token is SHA256-hashed before storage; only the hash is stored
         const { id, rawToken } = await apiTokens.createApiToken(db, {
             userId: req.session.user.id,
             tokenName: token_name.trim(),
+            permissions,
             expiresAt: null, // Non-expiring token by default
         });
 
