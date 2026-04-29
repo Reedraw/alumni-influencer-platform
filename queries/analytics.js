@@ -198,6 +198,32 @@ async function getAlumniList(db, { programme, sector, graduation_year } = {}) {
     return rows;
 }
 
+// ==================== GRADUATION YEAR DISTRIBUTION ====================
+
+/**
+ * Get the number of alumni per graduation year.
+ * Used to visualise how many graduates the university produces each year
+ * and to track the size of each cohort over time.
+ * @param {object} db - MySQL connection pool
+ * @returns {Promise<Array>} Array of { graduation_year, count } in chronological order
+ */
+async function getGraduationYearDistribution(db) {
+    const [rows] = await db.execute(
+        `SELECT
+            YEAR(pd.completion_date)   AS graduation_year,
+            COUNT(DISTINCT ap.user_id) AS count
+         FROM profile_degrees pd
+         JOIN alumni_profiles ap ON ap.id = pd.profile_id
+         JOIN users u ON u.id = ap.user_id
+         WHERE u.is_verified = TRUE
+           AND u.is_active = TRUE
+           AND pd.completion_date IS NOT NULL
+         GROUP BY YEAR(pd.completion_date)
+         ORDER BY graduation_year ASC`
+    );
+    return rows;
+}
+
 module.exports = {
     getTopCertifications,
     getTopShortCourses,
@@ -205,4 +231,5 @@ module.exports = {
     getDegreeBreakdown,
     getBiddingTrends,
     getAlumniList,
+    getGraduationYearDistribution,
 };

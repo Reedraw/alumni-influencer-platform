@@ -235,3 +235,15 @@ router.get("/analytics/alumni", requirePermission("read:analytics"), async (req,
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
+// GET /api/analytics/graduation-years — Number of alumni per graduation year
+router.get("/analytics/graduation-years", requirePermission("read:analytics"), async (req, res) => {
+    try {
+        const db = getDatabase();
+        const rows = await analytics.getGraduationYearDistribution(db);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
